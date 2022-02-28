@@ -22,7 +22,8 @@ const (
 	FatalLevel Level = "fatal"
 	// ErrorLevel level. Errors which cause a command to fail, but not immediately.
 	ErrorLevel Level = "error"
-	// WarnLevel level. Information about unexpected situations and minor errors (not causing a command to fail).
+	// WarnLevel level. Information about unexpected situations and minor errors
+	// (not causing a command to fail).
 	WarnLevel Level = "warn"
 	// InfoLevel level. Generally useful information (things happen).
 	InfoLevel Level = "info"
@@ -37,8 +38,8 @@ const (
 )
 
 var (
-	standardLogger = New(os.Stdout)
-	errorLogger    = New(os.Stderr).WithLevel(ErrorLevel)
+	standardLogger = NewMutable(os.Stdout)
+	errorLogger    = NewMutable(os.Stderr)
 	levelsMap      = map[string]Level{
 		string(FatalLevel):   FatalLevel,
 		string(ErrorLevel):   ErrorLevel,
@@ -50,7 +51,12 @@ var (
 	}
 )
 
-// ParseLevel converts level name to Level. It is case insensitive, returns DefaultLevel if value cannot be converted.
+func init() {
+	errorLogger.SetLevel(ErrorLevel)
+}
+
+// ParseLevel converts level name to Level. It is case insensitive, returns
+// DefaultLevel if value cannot be converted.
 func ParseLevel(s string) (level Level, ok bool) {
 	level, ok = levelsMap[strings.ToLower(s)]
 	if !ok {
@@ -59,17 +65,57 @@ func ParseLevel(s string) (level Level, ok bool) {
 	return level, ok
 }
 
-// Logger.
-type Logger struct {
+// Logger interface. All methods dedicated to change something don't alter
+// existing logger instance, they create new instance instead.
+type Logger interface {
+	io.Writer
+	// Printf writes log line. Arguments are handled in the manner of fmt.Print.
+	Print(...interface{}) Logger
+	// Printf writes log line. Arguments are handled in the manner of fmt.Printf.
+	Printf(string, ...interface{}) Logger
+	// WithLevel creates new logger instance logging at specified level. It
+	// doesn't change existing logger instance.
+	WithLevel(Level) Logger
+	// Level returns log level used by a logger.
+	Level() Level
+	// WithTags creates new logger instance with specified tags. Tags are
+	// prepended to each line produced by a logger. It doesn't change existing
+	// logger instance.
+	WithTags(...string) Logger
+	// Tags returns tags used by a logger. Tags are prepended to each line
+	// produced by a logger.
+	Tags() []string
+	// WithOutput creates new logger instance using specified Writer to print
+	// logs. It doesn't change existing logger instance.
+	WithOutput(io.Writer) Logger
+	// Output returns writer used by a logger.
+	Output() io.Writer
+}
+
+// MutableLogger is the same as a Logger, but it can be altered.
+type MutableLogger interface {
+	Logger
+	// SetOutput changes Writer used to print logs. It modifies logger instance
+	// instead creating a new one.
+	SetOutput(io.Writer)
+	// SetLevel changes level at which logs ar produced. It modifies existing
+	// logger instance instead of creating new one.
+	SetLevel(Level)
+	// SetTags changes tags used to decorate each line produced by logger. It
+	// modifies existing logger instance instead of creating new one.
+	SetTags(...string)
+}
+
+type logger struct {
 	output     io.Writer
 	tags       []string
 	level      Level
 	linePrefix string
 }
 
-// New creates new instance of Logger.
-func New(output io.Writer) *Logger {
-	l := &Logger{
+// New creates new instance of the Logger.
+func New(output io.Writer) Logger {
+	l := &logger{
 		output: output,
 		tags:   []string{},
 		level:  DefaultLevel,
@@ -80,7 +126,7 @@ func New(output io.Writer) *Logger {
 	return l
 }
 
-func (l *Logger) updateLinePrefix() {
+func (l *logger) updateLinePrefix() {
 	level, err := json.Marshal(l.level)
 	if err != nil {
 		level = []byte("\"" + DefaultLevel + "\"")
@@ -94,58 +140,51 @@ func (l *Logger) updateLinePrefix() {
 	)
 }
 
-// Tags returns tags used by a logger. Tags are prepended to each line produced by a logger.
-func (l *Logger) Tags() []string {
+func (l *logger) Tags() []string {
 	r := make([]string, len(l.tags))
 	copy(r, l.tags)
 	return r
 }
 
-// Level returns log level used by a logger.
-func (l *Logger) Level() Level {
+func (l *logger) Level() Level {
 	return l.level
 }
 
-// Output returns writer used by a logger.
-func (l *Logger) Output() io.Writer {
+func (l *logger) Output() io.Writer {
 	return l.output
 }
 
-// SetOutput changes Writer used to print logs. In contrast to other methods it modifies logger instance instead creating a new one.
-func (l *Logger) SetOutput(output io.Writer) {
-	l.output = output
-}
-
-// WithLevel creates new logger instance logging at specified level.
-func (l *Logger) WithLevel(level Level) *Logger {
+func (l *logger) WithLevel(level Level) Logger {
 	n := *l
 	n.level = level
 	n.updateLinePrefix()
 	return &n
 }
 
-// WithTags creates new logger instance with specified tags. Tags are prepended to each line produced by a logger.
-func (l *Logger) WithTags(tags ...string) *Logger {
+func (l *logger) WithTags(tags ...string) Logger {
 	n := *l
 	n.tags = tags
 	n.updateLinePrefix()
 	return &n
 }
 
-// Printf writes log line. Arguments are handled in the manner of fmt.Print.
-func (l *Logger) Print(v ...interface{}) *Logger {
+func (l *logger) WithOutput(output io.Writer) Logger {
+	n := *l
+	n.output = output
+	return &n
+}
+
+func (l *logger) Print(v ...interface{}) Logger {
 	line := l.linePrefix + fmt.Sprint(v...) + "\033_klio_reset\033\\\n"
 	l.output.Write([]byte(line))
 	return l
 }
 
-// Printf writes log line. Arguments are handled in the manner of fmt.Printf.
-func (l *Logger) Printf(format string, v ...interface{}) *Logger {
+func (l *logger) Printf(format string, v ...interface{}) Logger {
 	return l.Print(fmt.Sprintf(format, v...))
 }
 
-// Write prints input line by line.
-func (l *Logger) Write(p []byte) (int, error) {
+func (l *logger) Write(p []byte) (int, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(p)) // Scan lines
 	for scanner.Scan() {
 		l.Print(scanner.Text())
@@ -156,14 +195,47 @@ func (l *Logger) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// StandardLogger returns logger instance writing to the stdout. It writes using "info" level by default.
-func StandardLogger() *Logger {
+type mutableLogger struct {
+	*logger
+}
+
+// New creates new instance of the MutableLogger.
+func NewMutable(output io.Writer) MutableLogger {
+	l := &mutableLogger{
+		&logger{
+			output: output,
+			tags:   []string{},
+			level:  DefaultLevel,
+		},
+	}
+
+	l.updateLinePrefix()
+
+	return l
+}
+
+// StandardLogger returns global mutable logger instance for writing non-error logs. By default it writes to stdout at "info" level.
+func StandardLogger() MutableLogger {
 	return standardLogger
 }
 
-// ErrorLogger returns logger instance writing to the stderr. It writes using "error" level by default.
-func ErrorLogger() *Logger {
+// ErrorLogger returns global mutable logger instance for writing error logs. By default it writes to stderr at "error" level.
+func ErrorLogger() MutableLogger {
 	return errorLogger
+}
+
+func (l *mutableLogger) SetTags(tags ...string) {
+	l.tags = tags
+	l.updateLinePrefix()
+}
+
+func (l *mutableLogger) SetLevel(level Level) {
+	l.level = level
+	l.updateLinePrefix()
+}
+
+func (l *mutableLogger) SetOutput(output io.Writer) {
+	l.output = output
 }
 
 // Spam writes a message at level Spam on the standard logger. Arguments are handled in the manner of fmt.Print.
