@@ -28,11 +28,11 @@ func Example_stderr() {
 
 func Example_custom() {
 	var b bytes.Buffer
-	var l *log.Logger
+	var l log.Logger
 
 	l = log.New(&b)                   // Logger can write to any io.Writer
 	l = l.WithTags("foo", "bar")      // Klio prepends tags to log lines
-	l = l.WithLevel(log.VerboseLevel) // WithLevel and WithTags return new logger instead of modyfing the original one
+	l = l.WithLevel(log.VerboseLevel) // WithLevel and WithTags return new logger instead of modifying the original one
 
 	l.Print("hello world")
 	l.Printf("hello %s", "world")
@@ -94,7 +94,7 @@ func TestParseLevel(t *testing.T) {
 func TestNew(t *testing.T) {
 	var b bytes.Buffer
 	l := log.New(&b)
-	assert.IsType(t, &log.Logger{}, l)
+	assert.Implements(t, (*log.Logger)(nil), l)
 }
 
 func TestWithLevel(t *testing.T) {
@@ -161,12 +161,34 @@ func TestSetOutput(t *testing.T) {
 	var b1 bytes.Buffer
 	var b2 bytes.Buffer
 
-	l := log.New(&b1)
+	l := log.NewMutable(&b1)
 	l.SetOutput(&b2)
 	l.Print("foo")
 
 	assert.Equal(t, "", b1.String())
 	assert.Equal(t, "\033_klio_log_level \"info\"\033\\\033_klio_tags []\033\\foo\033_klio_reset\033\\\n", b2.String())
+}
+
+func TestSetLevel(t *testing.T) {
+	var b bytes.Buffer
+
+	l := log.NewMutable(&b)
+	l.SetLevel(log.DebugLevel)
+	l.Print("foo")
+
+	assert.Equal(t, log.DebugLevel, l.Level())
+	assert.Equal(t, "\033_klio_log_level \"debug\"\033\\\033_klio_tags []\033\\foo\033_klio_reset\033\\\n", b.String())
+}
+
+func TestSetTags(t *testing.T) {
+	var b bytes.Buffer
+
+	l := log.NewMutable(&b)
+	l.SetTags("egg", "spam")
+	l.Print("foo")
+
+	assert.Equal(t, []string{"egg", "spam"}, l.Tags())
+	assert.Equal(t, "\033_klio_log_level \"info\"\033\\\033_klio_tags [\"egg\",\"spam\"]\033\\foo\033_klio_reset\033\\\n", b.String())
 }
 
 func TestStandardLogger(t *testing.T) {
