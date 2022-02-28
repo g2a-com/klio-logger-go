@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	log "github.com/g2a-com/klio-logger-go"
+	log "github.com/g2a-com/klio-logger-go/v2"
 )
 
 func Example_basic() {
