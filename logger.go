@@ -16,6 +16,7 @@ import (
 
 // Level type.
 type Level string
+type Mode string
 
 const (
 	// FatalLevel level. Errors causing a command to exit immediately.
@@ -35,6 +36,12 @@ const (
 	SpamLevel Level = "spam"
 	// DefaultLevel is an alias for "info" level.
 	DefaultLevel = InfoLevel
+	// LineMode tells klio log parser to decorate log sequence according to configuration
+	LineMode Mode = "line"
+	// RawMode tells klio log parser to leave the log sequence without any decoration
+	RawMode Mode = "raw"
+	// DefaultMode is an alias for line mode.
+	DefaultMode = LineMode
 )
 
 var (
@@ -90,6 +97,11 @@ type Logger interface {
 	WithOutput(io.Writer) Logger
 	// Output returns writer used by a logger.
 	Output() io.Writer
+	// Mode returns printing mode used by a logger.
+	Mode() Mode
+	// WithMode creates new logger instance logging with a specified mode. It
+	// doesn't change existing logger instance.
+	WithMode(mode Mode) Logger
 }
 
 // MutableLogger is the same as a Logger, but it can be altered.
@@ -104,6 +116,9 @@ type MutableLogger interface {
 	// SetTags changes tags used to decorate each line produced by logger. It
 	// modifies existing logger instance instead of creating new one.
 	SetTags(...string)
+	// SetMode changes mode with which logs ar produced. It modifies existing
+	// logger instance instead of creating new one.
+	SetMode(mode Mode)
 }
 
 type logger struct {
@@ -111,6 +126,7 @@ type logger struct {
 	tags       []string
 	level      Level
 	linePrefix string
+	mode       Mode
 }
 
 // New creates new instance of the Logger.
@@ -119,6 +135,7 @@ func New(output io.Writer) Logger {
 		output: output,
 		tags:   []string{},
 		level:  DefaultLevel,
+		mode:   DefaultMode,
 	}
 
 	l.updateLinePrefix()
@@ -131,12 +148,16 @@ func (l *logger) updateLinePrefix() {
 	if err != nil {
 		level = []byte("\"" + DefaultLevel + "\"")
 	}
+	mode, err := json.Marshal(l.mode)
+	if err != nil {
+		mode = []byte("\"" + DefaultMode + "\"")
+	}
 	tags, err := json.Marshal(l.tags)
 	if err != nil || string(tags) == "null" {
 		tags = []byte("[]")
 	}
 	l.linePrefix = fmt.Sprintf(
-		"\033_klio_log_level %s\033\\\033_klio_tags %s\033\\", level, tags,
+		"\033_klio_log_level %s\033\\\033_klio_tags %s\033\\\033_klio_mode %s\033\\", level, tags, mode,
 	)
 }
 
@@ -150,6 +171,10 @@ func (l *logger) Level() Level {
 	return l.level
 }
 
+func (l *logger) Mode() Mode {
+	return l.mode
+}
+
 func (l *logger) Output() io.Writer {
 	return l.output
 }
@@ -157,6 +182,13 @@ func (l *logger) Output() io.Writer {
 func (l *logger) WithLevel(level Level) Logger {
 	n := *l
 	n.level = level
+	n.updateLinePrefix()
+	return &n
+}
+
+func (l *logger) WithMode(mode Mode) Logger {
+	n := *l
+	n.mode = mode
 	n.updateLinePrefix()
 	return &n
 }
@@ -236,6 +268,11 @@ func (l *mutableLogger) SetLevel(level Level) {
 
 func (l *mutableLogger) SetOutput(output io.Writer) {
 	l.output = output
+}
+
+func (l *mutableLogger) SetMode(mode Mode) {
+	l.mode = mode
+	l.updateLinePrefix()
 }
 
 // Spam writes a message at level Spam on the standard logger. Arguments are handled in the manner of fmt.Print.
