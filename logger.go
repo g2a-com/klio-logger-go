@@ -157,7 +157,7 @@ func (l *logger) updateLinePrefix() {
 		tags = []byte("[]")
 	}
 	l.linePrefix = fmt.Sprintf(
-		"\033_klio_log_level %s\033\\\033_klio_tags %s\033\\\033_klio_mode %s\033\\", level, tags, mode,
+		"\033_klio_mode %s\033\\\033_klio_log_level %s\033\\\033_klio_tags %s\033\\", mode, level, tags,
 	)
 }
 
