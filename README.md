@@ -1,17 +1,22 @@
-# Klio logger for golang
+# DEORECATED
+
+Klio logger is deprecated and no longer supported. Current klio version does not parse control sequences.
+Feel free to use [logger exported by klio](https://github.com/g2a-com/klio/blob/main/pkg/log/log.go) or any other logger instead.
+
+## Klio logger for golang
 
 This logger is meant to be used for building [Klio](https://github.com/g2a-com/klio) commands. It
 writes logs decorated with
 [control sequences interpreted by Klio](https://github.com/g2a-com/klio/blob/main/docs/output-handling.md).
 It doesn't filter or modify messages besides that.
 
-# Installation
+## Installation
 
 ```
 go get github.com/g2a-com/klio-logger-go
 ```
 
-# Quick Start
+## Quick Start
 
 If you don't want to use tags, or print to stderr use package-level functions:
 
